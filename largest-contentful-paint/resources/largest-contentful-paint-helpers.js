@@ -33,4 +33,28 @@ function checkImage(entry, expectedUrl, expectedID, expectedSize, timeLowerBound
   } else {
     assert_equals(entry.size, expectedSize);
   }
+  if (options.includes('animated')) {
+    assert_greater_than(entry.loadTime, entry.firstAnimatedFrameTime, 'firstAnimatedFrameTime should be smaller than loadTime');
+    assert_less_than(entry.firstAnimatedFrameTime, 1000, 'firstAnimatedFrameTime should be smaller than the delay applied to the second frame');
+    assert_greater_than(entry.firstAnimatedFrameTime, 0, 'firstAnimatedFrameTime should be larger than 0');
+  }
+  if (options.includes('animated-zero')) {
+    assert_equals(entry.firstAnimatedFrameTime, 0, 'firstAnimatedFrameTime should be 0');
+  }
 }
+
+const load_and_observe = url => {
+  return new Promise(resolve => {
+    (new PerformanceObserver(entryList => {
+      for (let entry of entryList.getEntries()) {
+        if (entry.url == url) {
+          resolve(entryList.getEntries()[0]);
+        }
+      }
+    })).observe({type: 'largest-contentful-paint', buffered: true});
+    const img = new Image();
+    img.id = 'image_id';
+    img.src = url;
+    document.body.appendChild(img);
+  });
+};
