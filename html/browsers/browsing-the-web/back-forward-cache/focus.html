@@ -1,0 +1,90 @@
+<!DOCTYPE HTML>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="/common/utils.js"></script>
+<script src="/common/dispatcher/dispatcher.js"></script>
+<script src="resources/helper.sub.js"></script>
+<script>
+promise_test(async t => {
+  const pageA = new RemoteContext(token());
+  const pageB = new RemoteContext(token());
+
+  const urlA = executorPath + pageA.context_id +
+               '&events=pagehide,pageshow,load';
+  const urlB = originCrossSite + executorPath + pageB.context_id;
+
+  window.open(urlA, '_blank', 'noopener');
+
+  // Create a <form>, focus on an <input>, and then submit the form to navigate
+  // to `urlB`. focus/blur events on the <input> are recorded.
+  await pageA.execute_script(waitForPageShow);
+  await pageA.execute_script(
+    (url) => {
+      // searchParams part of `url` (i.e. `uuid=` param) is passed via <input>,
+      // while other parts are via <form action> attribute.
+      url = new URL(url);
+      const targetId = url.searchParams.get('uuid');
+      url.search = '';
+
+      const form = document.createElement('form');
+      form.setAttribute('action', url.href);
+
+      const idInput = document.createElement('input');
+      idInput.setAttribute('type', 'text');
+      idInput.setAttribute('name', 'uuid');
+      idInput.setAttribute('value', targetId);
+      form.appendChild(idInput);
+
+      const textInput = document.createElement('input');
+      textInput.setAttribute('type', 'text');
+      textInput.setAttribute('id', 'toBeFocused');
+      textInput.onfocus = () => {
+        recordEvent('input.focus');
+      };
+      textInput.onblur = () => {
+        recordEvent('input.blur');
+      };
+      form.appendChild(textInput);
+
+      document.body.appendChild(form);
+
+      textInput.focus();
+
+      prepareNavigation(() => {
+        form.submit();
+      });
+    },
+    [urlB]
+  );
+
+  // Wait for navigation and then back navigate to `urlA`.
+  await pageB.execute_script(waitForPageShow);
+  await pageB.execute_script(
+    () => {
+      prepareNavigation(() => { history.back(); });
+    }
+  );
+
+  // Wait for navigation and assert that the page is restored from BFCache.
+  await pageA.execute_script(waitForPageShow);
+  await assert_bfcached(pageA);
+
+  assert_true(
+    await pageA.execute_script(() => {
+        return document.activeElement ===
+               document.querySelector('#toBeFocused');
+    }),
+    'activeElement should be the element focused before BFCache');
+
+  assert_array_equals(
+    await pageA.execute_script(() => getRecordedEvents()),
+    [
+      'window.load',
+      'window.pageshow',
+      'input.focus',
+      'window.pagehide.persisted',
+      'window.pageshow.persisted'
+    ],
+    'blur/focus events should not be fired around BFCache');
+}, 'Focus should be kept around BFCache');
+</script>
